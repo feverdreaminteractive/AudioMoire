@@ -62,3 +62,43 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     float3 rgb = mix(gray, hueColor, clamp(u.colorMagnitude, 0.0, 1.0));
     return float4(rgb, 1.0);
 }
+
+// Port of the fragment shader embedded in ~/Downloads/aim/OpArtSeries1-5.qtz:
+// a domain-warped ripple whose look is entirely driven by five phase
+// parameters (A-E), each used as an offset inside nested cos/sin warps. The
+// original patch animated these with slow LFOs; here they derive from time
+// plus the same audio magnitudes as the moiré pattern (mouse.x = bass,
+// mouse.y = treble, colorMagnitude = loudness) so it's continuously alive
+// even at silence, and visibly reshapes with the music.
+float3 opArtHsv(float h, float s, float v) {
+    float3 k = float3(3.0, 2.0, 1.0) / 3.0;
+    float3 p = abs(fract(h + k) * 6.0 - 3.0) - 1.0;
+    return mix(float3(1.0), clamp(p, 0.0, 1.0), s) * v;
+}
+
+fragment float4 fragmentShaderOpArt(VertexOut in [[stage_in]],
+                                     constant Uniforms &u [[buffer(0)]]) {
+    float2 fragCoord = float2((in.uv.x * 0.5 + 0.5) * u.resolution.x,
+                               (in.uv.y * 0.5 + 0.5) * u.resolution.y);
+
+    float A = u.time * 0.30 + u.mouse.x * 6.0;
+    float B = u.time * 0.21 + u.mouse.y * 6.0;
+    float C = u.time * 0.17 + u.mouse.x * 3.0;
+    float D = u.time * 0.13 + u.mouse.y * 3.0;
+    float E = u.time * 0.11 + u.colorMagnitude * 4.0;
+
+    float2 uv = 2.0 * fragCoord / u.resolution - 1.0;
+    uv.x *= 1.18;
+    uv.y *= 1.05;
+
+    uv *= length(uv * 0.23);
+    uv += cos(uv.x * 24.0 + A) * sin(u.time + uv.y * 32.0 + B);
+    uv += cos(u.time + uv.x * 16.0 + C) * sin(u.time + uv.x * 4.0 + D);
+    uv *= sin(length(uv) * 2.0 + E);
+
+    float r = length(uv);
+    float hueShift = u.colorMagnitude * 0.3;
+
+    float3 rgb = (1.0 - float3(exp(r) - 1.1)) * opArtHsv(0.4 + hueShift + r * 0.8, 1.0, 1.0);
+    return float4(rgb, 1.0);
+}
