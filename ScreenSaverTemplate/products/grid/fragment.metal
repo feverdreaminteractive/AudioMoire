@@ -24,5 +24,5 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     float3 hueColor = hsv2rgb(float3(fract(u.time * 0.05 + u.colorMagnitude * 0.6), 0.85, clamp(c, 0.0, 1.0)));
     float3 color = mix(gray, hueColor, clamp(u.colorMagnitude, 0.0, 1.0));
 
-    return float4(color, 1.0);
+    return float4(color * 0.5, 1.0);
 }

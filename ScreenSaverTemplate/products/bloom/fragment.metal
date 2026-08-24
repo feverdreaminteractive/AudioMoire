@@ -36,5 +36,5 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     destColor = mix(destColor, destColor * hueOverlay * 2.0, clamp(u.colorMagnitude, 0.0, 1.0) * 0.5);
 
     float scanline = gmod(fragCoord.y, 2.0);
-    return float4(destColor * scanline, 1.0);
+    return float4(destColor * scanline * 0.5, 1.0);
 }
