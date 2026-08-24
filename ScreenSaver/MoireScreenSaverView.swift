@@ -37,65 +37,66 @@ final class MoireScreenSaverView: ScreenSaverView {
         let view = MTKView(frame: bounds, device: device)
         view.autoresizingMask = [.width, .height]
         view.colorPixelFormat = .bgra8Unorm
-        view.preferredFramesPerSecond = 60
-        view.enableSetNeedsDisplay = false
-        view.isPaused = true // started explicitly in startAnimation()
+        // Pull model, not push: MTKView never drives its own render loop
+        // (isPaused stays true permanently — see class doc for why). Every
+        // frame is drawn synchronously from animateOneFrame() below, at
+        // whatever cadence ScreenSaverView's own internal timer calls it
+        // (animationTimeInterval, set below to 30fps — plenty for these
+        // patterns, and half the GPU work of the old 60fps self-driven loop).
+        view.enableSetNeedsDisplay = true
+        view.isPaused = true
         addSubview(view)
         metalView = view
         renderer = MoireRenderer(device: device)
         view.delegate = renderer
     }
 
-    override func startAnimation() {
-        super.startAnimation()
-        animationRequested = true
-        updatePauseState()
-    }
-
-    override func stopAnimation() {
-        super.stopAnimation()
-        animationRequested = false
-        updatePauseState()
-    }
-
-    // Safety net: the .appex host that runs .saver plugins on modern macOS
-    // doesn't reliably call stopAnimation() when a System Settings preview
-    // is dismissed or the gallery switches savers (observed: legacyScreenSaver
-    // left running at 100%+ CPU indefinitely with no window visible). MTKView's
-    // CVDisplayLink-driven render loop is otherwise decoupled from window
-    // visibility once started, so tie isPaused to actual window occlusion
-    // as a backstop independent of the start/stopAnimation calls.
-    private var animationRequested = false
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
-        if let window {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(occlusionStateChanged),
-                name: NSWindow.didChangeOcclusionStateNotification,
-                object: window
-            )
+    // Deliberately pull, not push: earlier versions let MTKView drive its
+    // own render loop via a CVDisplayLink (isPaused = false), then tried
+    // bolting on ways to detect from outside when to pause it —
+    // NSWindow.occlusionState (never reported .visible in the
+    // legacyScreenSaver.appex host that runs .saver plugins on modern
+    // macOS), then polling CGWindowListCopyWindowInfo for whether our
+    // window was still on-screen (still 130%+ CPU indefinitely after
+    // quitting System Settings — the WindowServer kept listing the
+    // orphaned preview window as on-screen even after its owning app had
+    // already quit, so the "ground truth" being polled was itself wrong).
+    // Both failure modes trace to the same root cause: a self-sustaining
+    // loop, once started, has no reliable way to learn from outside that
+    // it should stop in this host.
+    //
+    // animateOneFrame() sidesteps most of that class of bug: it draws one
+    // frame only when ScreenSaverView's own internal timer calls it, and
+    // that timer is what start/stopAnimation() actually control — so
+    // there's no *separate* render loop of ours left running to leak.
+    //
+    // But the host's own internal timer isn't reliably stopped either:
+    // quitting System Settings still left animateOneFrame() being called
+    // indefinitely (observed: ~15% CPU steady, down from the old 130%+,
+    // but not zero). That only happens for isPreview instances — the
+    // small gallery thumbnails and the big live preview at the top of the
+    // Screen Saver pane, both hosted inside System Settings by
+    // legacyScreenSaver.appex, a separate process that isn't told to stop
+    // when System Settings quits. The real full-screen/lock-screen saver
+    // (isPreview == false) is driven by a different, more reliable host
+    // lifecycle and doesn't have this problem, so it's left untouched below.
+    //
+    // For isPreview instances, skip the draw once the specific app that
+    // could have requested this preview is confirmed gone — narrower and
+    // safer than the earlier CGWindowListCopyWindowInfo attempts, which
+    // polled whether *our own window* was still on-screen and failed
+    // because the WindowServer kept listing the orphaned preview window
+    // as on-screen even after System Settings had already quit. Checking
+    // System Settings' own liveness isn't fooled by that, since it doesn't
+    // go through the WindowServer's window-list bookkeeping at all.
+    override func animateOneFrame() {
+        super.animateOneFrame()
+        if isPreview && !NSWorkspace.shared.runningApplications.contains(where: {
+            $0.bundleIdentifier == "com.apple.systempreferences"
+        }) {
+            return
         }
-        updatePauseState()
-    }
-
-    @objc private func occlusionStateChanged() {
-        updatePauseState()
-    }
-
-    private func updatePauseState() {
-        // occlusionState is NOT a reliable signal in the legacyScreenSaver.appex
-        // host — it doesn't track this window through normal AppKit occlusion
-        // (confirmed: gating resume on .visible left every saver permanently
-        // paused, a black screen). Pause tracks start/stopAnimation as before;
-        // the only extra safety net is the unambiguous window==nil case.
-        metalView?.isPaused = !animationRequested || window == nil
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+        metalView?.draw()
     }
 
     override var hasConfigureSheet: Bool { false }
