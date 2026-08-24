@@ -2,15 +2,16 @@ import ScreenSaver
 import MetalKit
 import QuartzCore
 
-/// Screen-saver host for the same moiré visual as the main app. Embeds an
-/// MTKView as a subview and lets it drive its own render loop (isPaused =
-/// false) rather than depending on ScreenSaverView's legacy
-/// animateOneFrame() pull model — startAnimation()/stopAnimation() just
-/// start/stop the MTKView and the system audio tap.
-@objc(MoireScreenSaverView)
-final class MoireScreenSaverView: ScreenSaverView {
+/// Generic single-shader screen saver host, generated from
+/// ScreenSaverTemplate/build-shader-saver.sh — see the Fever Dream Screen
+/// catalog notes for the pattern this stamps out. __CLASS__ is substituted
+/// per product to give each installed .saver a unique Objective-C class
+/// name (colliding class names across simultaneously-installed .saver
+/// bundles cause an undefined-behavior dyld warning).
+@objc(__CLASS__ScreenSaverView)
+final class __CLASS__ScreenSaverView: ScreenSaverView {
     private var metalView: MTKView?
-    private var renderer: MoireRenderer?
+    private var renderer: __CLASS__Renderer?
     private let analyzer = AudioAnalyzer(sampleRate: 48000)
     private var tapBox: Any?
 
@@ -35,7 +36,7 @@ final class MoireScreenSaverView: ScreenSaverView {
         view.isPaused = true // started explicitly in startAnimation()
         addSubview(view)
         metalView = view
-        renderer = MoireRenderer(device: device, analyzer: analyzer)
+        renderer = __CLASS__Renderer(device: device, analyzer: analyzer)
         view.delegate = renderer
     }
 
@@ -56,7 +57,7 @@ final class MoireScreenSaverView: ScreenSaverView {
         do {
             try tap.start()
         } catch {
-            print("AudioMoire screen saver: failed to start system audio tap: \(error)")
+            print("__CLASS__ screen saver: failed to start system audio tap: \(error)")
         }
     }
 
@@ -71,11 +72,7 @@ final class MoireScreenSaverView: ScreenSaverView {
     override var configureSheet: NSWindow? { nil }
 }
 
-/// Same shader/uniform setup as the main app's Renderer (MoireMetalView.swift),
-/// duplicated here rather than shared because this target is a raw swiftc-built
-/// .saver bundle, not part of the AudioMoire SPM module. Loads Shaders.metal
-/// from this bundle's own Resources rather than SPM's Bundle.module.
-final class MoireRenderer: NSObject, MTKViewDelegate {
+final class __CLASS__Renderer: NSObject, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue
     private let pipelineState: MTLRenderPipelineState
     private let analyzer: AudioAnalyzer
@@ -93,11 +90,11 @@ final class MoireRenderer: NSObject, MTKViewDelegate {
         self.commandQueue = queue
         self.analyzer = analyzer
 
-        guard let shaderURL = Bundle(for: MoireRenderer.self).url(forResource: "Shaders", withExtension: "metal"),
+        guard let shaderURL = Bundle(for: __CLASS__Renderer.self).url(forResource: "Shaders", withExtension: "metal"),
               let shaderSource = try? String(contentsOf: shaderURL, encoding: .utf8),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let vertexFn = library.makeFunction(name: "vertexShader"),
-              let fragmentFn = library.makeFunction(name: "fragmentShaderOpArt") else {
+              let fragmentFn = library.makeFunction(name: "fragmentShader") else {
             return nil
         }
 
@@ -116,19 +113,12 @@ final class MoireRenderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
-    private var frameCount = 0
-
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable,
               let passDescriptor = view.currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else {
             return
-        }
-
-        frameCount += 1
-        if frameCount % 60 == 0 {
-            NSLog("AudioMoire DEBUG (saver): h=%.4f v=%.4f c=%.4f", analyzer.horizontalMagnitude, analyzer.verticalMagnitude, analyzer.colorMagnitude)
         }
 
         var uniforms = Uniforms(

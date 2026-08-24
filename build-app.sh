@@ -7,19 +7,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="AudioMoire"
+APP_NAME="AudioMoire" # Swift package executable target name (Package.swift) — not the product name
+BUNDLE_NAME="FeverDreamScreen" # .app bundle folder + executable file shown to users
+DISPLAY_NAME="Fever Dream Screen" # CFBundleName shown in Finder/Dock/menu bar
+BUNDLE_ID="com.feverdream.screen"
 BUILD_CONFIG="${1:-release}"
+# Ad-hoc by default (local testing). For a distributable build, set:
+#   SIGN_IDENTITY="Developer ID Application: Ryan Clayton (AWLLM3Q8GW)"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
 swift build -c "$BUILD_CONFIG"
 
 BIN_PATH=$(swift build -c "$BUILD_CONFIG" --show-bin-path)
-APP_BUNDLE="$BIN_PATH/$APP_NAME.app"
+APP_BUNDLE="$BIN_PATH/$BUNDLE_NAME.app"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 
-cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$BUNDLE_NAME"
+cp "FeverDreamScreen.icns" "$APP_BUNDLE/Contents/Resources/FeverDreamScreen.icns"
 
 # Bundled Metal library / SPM resources, if any were produced alongside the binary.
 if [ -d "$BIN_PATH/${APP_NAME}_${APP_NAME}.bundle" ]; then
@@ -32,11 +39,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>$APP_NAME</string>
+    <string>$BUNDLE_NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.audiomoire.app</string>
+    <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>$APP_NAME</string>
+    <string>$DISPLAY_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>FeverDreamScreen</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -46,14 +55,19 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key>
     <string>14.2</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>AudioMoire reacts to whatever's playing out of your speakers to drive its visuals.</string>
+    <string>Fever Dream Screen reacts to whatever's playing out of your speakers to drive its visuals.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP_BUNDLE"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --sign - "$APP_BUNDLE"
+else
+  # Hardened runtime is required for notarization.
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+fi
 
 echo "Built: $APP_BUNDLE"
 echo "Run with: open \"$APP_BUNDLE\""

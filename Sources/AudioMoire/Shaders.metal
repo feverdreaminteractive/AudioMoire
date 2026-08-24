@@ -60,6 +60,15 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     float3 hueColor = hsv2rgb(float3(hue, 0.85, clamp(abs(t) * (0.6 + u.colorMagnitude), 0.0, 1.0)));
 
     float3 rgb = mix(gray, hueColor, clamp(u.colorMagnitude, 0.0, 1.0));
+
+    // TEMPORARY diagnostic: an unmissable invert flash on any nonzero
+    // loudness, to settle whether real audio data is reaching the shader
+    // at all vs. just being too subtle at the tuned scale. Remove once
+    // confirmed either way.
+    if (u.colorMagnitude > 0.03 || u.mouse.x > 0.03 || u.mouse.y > 0.03) {
+        rgb = 1.0 - rgb;
+    }
+
     return float4(rgb, 1.0);
 }
 

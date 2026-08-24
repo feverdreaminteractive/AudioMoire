@@ -50,7 +50,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let pipelineStates: [MTLRenderPipelineState]
     private let analyzer: AudioAnalyzer
     private let startTime = CACurrentMediaTime()
-    private var patternIndex = 0
+    private var patternIndex = 1 // default to the OpArt pattern; spacebar still cycles
 
     private struct Uniforms {
         var time: Float
@@ -115,12 +115,19 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
+    private var frameCount = 0
+
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable,
               let passDescriptor = view.currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else {
             return
+        }
+
+        frameCount += 1
+        if frameCount % 60 == 0 {
+            NSLog("AudioMoire DEBUG: h=%.4f v=%.4f c=%.4f", analyzer.horizontalMagnitude, analyzer.verticalMagnitude, analyzer.colorMagnitude)
         }
 
         var uniforms = Uniforms(

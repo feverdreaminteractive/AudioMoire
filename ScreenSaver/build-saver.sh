@@ -6,18 +6,24 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BUNDLE_NAME="AudioMoire.saver"
-MODULE_NAME="AudioMoireSaver"
+BUNDLE_NAME="Drippy.saver"
+EXEC_NAME="Drippy"
+DISPLAY_NAME="Drippy"
+BUNDLE_ID="com.feverdream.drippy.saver"
+MODULE_NAME="DrippySaver"
 BUILD_DIR="build"
 BUNDLE_PATH="$BUILD_DIR/$BUNDLE_NAME"
 INSTALL_DIR="$HOME/Library/Screen Savers"
+# Ad-hoc by default (local testing). For a distributable build, set:
+#   SIGN_IDENTITY="Developer ID Application: Ryan Clayton (AWLLM3Q8GW)"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUNDLE_PATH/Contents/MacOS"
 mkdir -p "$BUNDLE_PATH/Contents/Resources"
 
 swiftc -emit-library \
-  -o "$BUNDLE_PATH/Contents/MacOS/AudioMoire" \
+  -o "$BUNDLE_PATH/Contents/MacOS/$EXEC_NAME" \
   -module-name "$MODULE_NAME" \
   -target arm64-apple-macos14.2 \
   -Xlinker -bundle \
@@ -34,6 +40,7 @@ swiftc -emit-library \
   ../Sources/AudioMoire/SystemAudioTap.swift
 
 cp ../Sources/AudioMoire/Shaders.metal "$BUNDLE_PATH/Contents/Resources/Shaders.metal"
+cp ../Drippy.icns "$BUNDLE_PATH/Contents/Resources/Drippy.icns"
 
 cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,11 +48,13 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>AudioMoire</string>
+    <string>$EXEC_NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.audiomoire.screensaver</string>
+    <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>AudioMoire</string>
+    <string>$DISPLAY_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>Drippy</string>
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>
@@ -57,14 +66,19 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key>
     <string>MoireScreenSaverView</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>AudioMoire reacts to whatever's playing out of your speakers to drive its visuals.</string>
+    <string>Drippy reacts to whatever's playing out of your speakers to drive its visuals.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$BUNDLE_PATH"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --entitlements ../ScreenSaverTemplate/saver.entitlements --sign - "$BUNDLE_PATH"
+else
+  # Hardened runtime is required for notarization.
+  codesign --force --deep --options runtime --timestamp --entitlements ../ScreenSaverTemplate/saver.entitlements --sign "$SIGN_IDENTITY" "$BUNDLE_PATH"
+fi
 
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALL_DIR/$BUNDLE_NAME"
