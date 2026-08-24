@@ -6,8 +6,10 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     float2 fragCoord = float2((in.uv.x * 0.5 + 0.5) * u.resolution.x,
                                (in.uv.y * 0.5 + 0.5) * u.resolution.y);
 
-    float3 color = float3(3.0, 1.0, 1.0);
-    float width = 100.0;
+    float3 orange = float3(4.0, 1.5, 0.0);
+    float3 pink = float3(4.0, 0.4, 2.2);
+    float3 color = orange;
+    float width = 200.0;
 
     float x = fragCoord.x - u.resolution.x / 2.5;
     float y = fragCoord.y - u.resolution.y / 2.5;
@@ -21,11 +23,8 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
     float xp = xr * cos(angle * s) - yr * sin(angle * s) - u.time * (550.0 + u.mouse.y * 300.0);
 
     if (gmod(xp, width) - width / 2.0 > 0.0) {
-        color = float3(1.0, 0.0, 5.0);
+        color = pink;
     }
 
-    float3 hueColor = hsv2rgb(float3(fract(u.time * 0.05 + u.colorMagnitude * 0.6), 0.85, 1.0));
-    float3 finalColor = mix(color, hueColor * 3.0, clamp(u.colorMagnitude, 0.0, 1.0) * 0.6);
-
-    return float4(finalColor * 0.5, 1.0);
+    return float4(color * 0.5, 1.0);
 }
