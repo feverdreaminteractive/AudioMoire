@@ -72,13 +72,8 @@ swiftc -emit-library \
   -framework Metal \
   -framework MetalKit \
   -framework QuartzCore \
-  -framework CoreAudio \
-  -framework AudioToolbox \
-  -framework Accelerate \
   -framework AppKit \
-  "$GENERATED_SWIFT" \
-  ../Sources/AudioMoire/AudioAnalyzer.swift \
-  ../Sources/AudioMoire/SystemAudioTap.swift
+  "$GENERATED_SWIFT"
 
 cp "$ICON_ICNS" "$BUNDLE_PATH/Contents/Resources/${CLASS_PREFIX}.icns"
 
@@ -105,8 +100,6 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
     <string>14.2</string>
     <key>NSPrincipalClass</key>
     <string>${CLASS_PREFIX}ScreenSaverView</string>
-    <key>NSAudioCaptureUsageDescription</key>
-    <string>$DISPLAY_NAME reacts to whatever's playing out of your speakers to drive its visuals.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -114,9 +107,9 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
 PLIST
 
 if [ "$SIGN_IDENTITY" = "-" ]; then
-  codesign --force --deep --entitlements saver.entitlements --sign - "$BUNDLE_PATH"
+  codesign --force --deep --sign - "$BUNDLE_PATH"
 else
-  codesign --force --deep --options runtime --timestamp --entitlements saver.entitlements --sign "$SIGN_IDENTITY" "$BUNDLE_PATH"
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$BUNDLE_PATH"
 fi
 
 mkdir -p "$INSTALL_DIR"

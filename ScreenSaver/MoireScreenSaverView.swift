@@ -5,22 +5,21 @@ import QuartzCore
 /// Screen-saver host for the same moiré visual as the main app. Embeds an
 /// MTKView as a subview and lets it drive its own render loop (isPaused =
 /// false) rather than depending on ScreenSaverView's legacy
-/// animateOneFrame() pull model — startAnimation()/stopAnimation() just
-/// start/stop the MTKView and the system audio tap.
+/// animateOneFrame() pull model.
+///
+/// No live audio here: the legacyScreenSaver.appex host that runs .saver
+/// plugins on modern macOS is a platform binary, and TCC silently denies
+/// any audio-capture permission request made from a platform binary — no
+/// prompt ever shows, so a real Core Audio tap can never receive samples
+/// in this context (it works fine in the standalone FeverDreamScreen.app,
+/// which requests the permission as itself). The `mouse`/`colorMagnitude`
+/// shader uniforms are driven by a slow synthetic animation instead, same
+/// idea as the web preview's fallback when there's no mic access in-browser
+/// (see src/shaders/fever-dream-shader.ts in the portfolio repo).
 @objc(MoireScreenSaverView)
 final class MoireScreenSaverView: ScreenSaverView {
     private var metalView: MTKView?
     private var renderer: MoireRenderer?
-    private let analyzer = AudioAnalyzer(sampleRate: 48000)
-    private var tapBox: Any?
-    // Serializes tap start/stop off the main thread — startAnimation() runs
-    // on the main thread, and if AudioHardwareCreateProcessTap/
-    // AudioHardwareCreateAggregateDevice (or the TCC audio-permission
-    // prompt they trigger) ever blocks, that must not freeze the main
-    // thread: it's the only thing pumping mouse/keyboard events that
-    // dismiss the saver, and a hung screensaver host can't be escaped
-    // except by a hardware reset.
-    private let audioQueue = DispatchQueue(label: "com.feverdream.saver.audio")
 
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
@@ -43,40 +42,18 @@ final class MoireScreenSaverView: ScreenSaverView {
         view.isPaused = true // started explicitly in startAnimation()
         addSubview(view)
         metalView = view
-        renderer = MoireRenderer(device: device, analyzer: analyzer)
+        renderer = MoireRenderer(device: device)
         view.delegate = renderer
     }
 
     override func startAnimation() {
         super.startAnimation()
         metalView?.isPaused = false
-
-        // isPreview covers both the small grid thumbnails *and* the live
-        // preview pane in System Settings > Screen Saver — those render
-        // every installed .saver simultaneously, so starting a real Core
-        // Audio process tap + private aggregate device per thumbnail was
-        // spinning up N concurrent taps at once and hammering coreaudiod
-        // (slowdowns, occasional crashes). Only tap real audio when this
-        // is the actual engaged, full-screen saver.
-        guard !isPreview, #available(macOS 14.2, *) else { return }
-        let tap = SystemAudioTap(analyzer: analyzer)
-        tapBox = tap
-        audioQueue.async {
-            do {
-                try tap.start()
-            } catch {
-                print("AudioMoire screen saver: failed to start system audio tap: \(error)")
-            }
-        }
     }
 
     override func stopAnimation() {
         super.stopAnimation()
         metalView?.isPaused = true
-        if let tap = tapBox as? SystemAudioTap {
-            audioQueue.async { tap.stop() }
-        }
-        tapBox = nil
     }
 
     override var hasConfigureSheet: Bool { false }
@@ -90,7 +67,6 @@ final class MoireScreenSaverView: ScreenSaverView {
 final class MoireRenderer: NSObject, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue
     private let pipelineState: MTLRenderPipelineState
-    private let analyzer: AudioAnalyzer
     private let startTime = CACurrentMediaTime()
 
     private struct Uniforms {
@@ -100,10 +76,9 @@ final class MoireRenderer: NSObject, MTKViewDelegate {
         var colorMagnitude: Float
     }
 
-    init?(device: MTLDevice, analyzer: AudioAnalyzer) {
+    init?(device: MTLDevice) {
         guard let queue = device.makeCommandQueue() else { return nil }
         self.commandQueue = queue
-        self.analyzer = analyzer
 
         guard let shaderURL = Bundle(for: MoireRenderer.self).url(forResource: "Shaders", withExtension: "metal"),
               let shaderSource = try? String(contentsOf: shaderURL, encoding: .utf8),
@@ -128,8 +103,6 @@ final class MoireRenderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
-    private var frameCount = 0
-
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable,
               let passDescriptor = view.currentRenderPassDescriptor,
@@ -138,16 +111,15 @@ final class MoireRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        frameCount += 1
-        if frameCount % 60 == 0 {
-            NSLog("AudioMoire DEBUG (saver): h=%.4f v=%.4f c=%.4f", analyzer.horizontalMagnitude, analyzer.verticalMagnitude, analyzer.colorMagnitude)
-        }
-
+        let time = Float(CACurrentMediaTime() - startTime)
+        // No live audio in this host (see class doc) — slow synthetic
+        // sine waves at different periods stand in for the bass/treble/
+        // loudness magnitudes a real tap would otherwise drive.
         var uniforms = Uniforms(
-            time: Float(CACurrentMediaTime() - startTime),
+            time: time,
             resolution: SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height)),
-            mouse: SIMD2<Float>(analyzer.horizontalMagnitude, analyzer.verticalMagnitude),
-            colorMagnitude: analyzer.colorMagnitude
+            mouse: SIMD2<Float>(0.5 + 0.5 * sin(time * 0.13), 0.5 + 0.5 * sin(time * 0.19 + 1.7)),
+            colorMagnitude: 0.5 + 0.5 * sin(time * 0.3)
         )
 
         encoder.setRenderPipelineState(pipelineState)

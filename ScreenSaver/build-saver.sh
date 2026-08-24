@@ -31,13 +31,8 @@ swiftc -emit-library \
   -framework Metal \
   -framework MetalKit \
   -framework QuartzCore \
-  -framework CoreAudio \
-  -framework AudioToolbox \
-  -framework Accelerate \
   -framework AppKit \
-  MoireScreenSaverView.swift \
-  ../Sources/AudioMoire/AudioAnalyzer.swift \
-  ../Sources/AudioMoire/SystemAudioTap.swift
+  MoireScreenSaverView.swift
 
 cp ../Sources/AudioMoire/Shaders.metal "$BUNDLE_PATH/Contents/Resources/Shaders.metal"
 cp ../Drippy.icns "$BUNDLE_PATH/Contents/Resources/Drippy.icns"
@@ -65,8 +60,6 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
     <string>14.2</string>
     <key>NSPrincipalClass</key>
     <string>MoireScreenSaverView</string>
-    <key>NSAudioCaptureUsageDescription</key>
-    <string>Drippy reacts to whatever's playing out of your speakers to drive its visuals.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -74,10 +67,10 @@ cat > "$BUNDLE_PATH/Contents/Info.plist" <<PLIST
 PLIST
 
 if [ "$SIGN_IDENTITY" = "-" ]; then
-  codesign --force --deep --entitlements ../ScreenSaverTemplate/saver.entitlements --sign - "$BUNDLE_PATH"
+  codesign --force --deep --sign - "$BUNDLE_PATH"
 else
   # Hardened runtime is required for notarization.
-  codesign --force --deep --options runtime --timestamp --entitlements ../ScreenSaverTemplate/saver.entitlements --sign "$SIGN_IDENTITY" "$BUNDLE_PATH"
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$BUNDLE_PATH"
 fi
 
 mkdir -p "$INSTALL_DIR"
