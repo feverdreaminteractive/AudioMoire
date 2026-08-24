@@ -7,7 +7,7 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
                                (in.uv.y * 0.5 + 0.5) * u.resolution.y);
 
     float3 color = float3(3.0, 1.0, 1.0);
-    float width = 50.0;
+    float width = 100.0;
 
     float x = fragCoord.x - u.resolution.x / 2.5;
     float y = fragCoord.y - u.resolution.y / 2.5;
