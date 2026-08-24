@@ -48,12 +48,54 @@ final class MoireScreenSaverView: ScreenSaverView {
 
     override func startAnimation() {
         super.startAnimation()
-        metalView?.isPaused = false
+        animationRequested = true
+        updatePauseState()
     }
 
     override func stopAnimation() {
         super.stopAnimation()
-        metalView?.isPaused = true
+        animationRequested = false
+        updatePauseState()
+    }
+
+    // Safety net: the .appex host that runs .saver plugins on modern macOS
+    // doesn't reliably call stopAnimation() when a System Settings preview
+    // is dismissed or the gallery switches savers (observed: legacyScreenSaver
+    // left running at 100%+ CPU indefinitely with no window visible). MTKView's
+    // CVDisplayLink-driven render loop is otherwise decoupled from window
+    // visibility once started, so tie isPaused to actual window occlusion
+    // as a backstop independent of the start/stopAnimation calls.
+    private var animationRequested = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(occlusionStateChanged),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: window
+            )
+        }
+        updatePauseState()
+    }
+
+    @objc private func occlusionStateChanged() {
+        updatePauseState()
+    }
+
+    private func updatePauseState() {
+        // occlusionState is NOT a reliable signal in the legacyScreenSaver.appex
+        // host — it doesn't track this window through normal AppKit occlusion
+        // (confirmed: gating resume on .visible left every saver permanently
+        // paused, a black screen). Pause tracks start/stopAnimation as before;
+        // the only extra safety net is the unambiguous window==nil case.
+        metalView?.isPaused = !animationRequested || window == nil
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override var hasConfigureSheet: Bool { false }
