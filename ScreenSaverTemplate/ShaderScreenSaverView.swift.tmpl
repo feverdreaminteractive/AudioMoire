@@ -1,6 +1,7 @@
 import ScreenSaver
 import MetalKit
 import QuartzCore
+import CoreGraphics
 
 /// Generic single-shader screen saver host, generated from
 /// ScreenSaverTemplate/build-shader-saver.sh — see the Fever Dream Screen
@@ -62,42 +63,53 @@ final class __CLASS__ScreenSaverView: ScreenSaverView {
 
     // Safety net: the .appex host that runs .saver plugins on modern macOS
     // doesn't reliably call stopAnimation() when a System Settings preview
-    // is dismissed or the gallery switches savers (observed: legacyScreenSaver
-    // left running at 100%+ CPU indefinitely with no window visible). MTKView's
+    // is dismissed or the gallery scrolls a saver out of view (observed:
+    // legacyScreenSaver left running at 100%+ CPU indefinitely). MTKView's
     // CVDisplayLink-driven render loop is otherwise decoupled from window
-    // visibility once started, so tie isPaused to actual window occlusion
-    // as a backstop independent of the start/stopAnimation calls.
+    // visibility once started, so this polls the WindowServer directly for
+    // whether our window is actually on-screen, as a backstop independent
+    // of the start/stopAnimation calls.
+    //
+    // NSWindow.occlusionState was tried first and rejected: it never sets
+    // .visible in this host (gating resume on it left every saver
+    // permanently paused — a black screen), and tying the pause purely to
+    // window == nil wasn't enough either — this host appears to keep the
+    // window non-nil while the gallery scrolls a saver's preview out of
+    // view, so CPU kept running regardless. Asking CGWindowListCopyWindowInfo
+    // whether our own windowNumber is still in the on-screen list is
+    // ground truth from the compositor itself, independent of whatever
+    // AppKit occlusion bookkeeping this host does or doesn't maintain.
     private var animationRequested = false
+    private var visibilityTimer: Timer?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
-        if let window {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(occlusionStateChanged),
-                name: NSWindow.didChangeOcclusionStateNotification,
-                object: window
-            )
-        }
         updatePauseState()
+        visibilityTimer?.invalidate()
+        visibilityTimer = nil
+        if window != nil {
+            let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.updatePauseState()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            visibilityTimer = timer
+        }
     }
 
-    @objc private func occlusionStateChanged() {
-        updatePauseState()
+    private func isWindowOnScreen() -> Bool {
+        guard let number = window?.windowNumber, number > 0 else { return false }
+        guard let info = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: AnyObject]] else {
+            return false
+        }
+        return info.contains { ($0[kCGWindowNumber as String] as? Int) == number }
     }
 
     private func updatePauseState() {
-        // occlusionState is NOT a reliable signal in the legacyScreenSaver.appex
-        // host — it doesn't track this window through normal AppKit occlusion
-        // (confirmed: gating resume on .visible left every saver permanently
-        // paused, a black screen). Pause tracks start/stopAnimation as before;
-        // the only extra safety net is the unambiguous window==nil case.
-        metalView?.isPaused = !animationRequested || window == nil
+        metalView?.isPaused = !animationRequested || !isWindowOnScreen()
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        visibilityTimer?.invalidate()
     }
 
     override var hasConfigureSheet: Bool { false }
