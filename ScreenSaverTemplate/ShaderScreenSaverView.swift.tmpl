@@ -14,6 +14,14 @@ final class __CLASS__ScreenSaverView: ScreenSaverView {
     private var renderer: __CLASS__Renderer?
     private let analyzer = AudioAnalyzer(sampleRate: 48000)
     private var tapBox: Any?
+    // Serializes tap start/stop off the main thread — startAnimation() runs
+    // on the main thread, and if AudioHardwareCreateProcessTap/
+    // AudioHardwareCreateAggregateDevice (or the TCC audio-permission
+    // prompt they trigger) ever blocks, that must not freeze the main
+    // thread: it's the only thing pumping mouse/keyboard events that
+    // dismiss the saver, and a hung screensaver host can't be escaped
+    // except by a hardware reset.
+    private let audioQueue = DispatchQueue(label: "com.feverdream.saver.audio")
 
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
@@ -54,17 +62,21 @@ final class __CLASS__ScreenSaverView: ScreenSaverView {
         guard !isPreview, #available(macOS 14.2, *) else { return }
         let tap = SystemAudioTap(analyzer: analyzer)
         tapBox = tap
-        do {
-            try tap.start()
-        } catch {
-            print("__CLASS__ screen saver: failed to start system audio tap: \(error)")
+        audioQueue.async {
+            do {
+                try tap.start()
+            } catch {
+                print("__CLASS__ screen saver: failed to start system audio tap: \(error)")
+            }
         }
     }
 
     override func stopAnimation() {
         super.stopAnimation()
         metalView?.isPaused = true
-        (tapBox as? SystemAudioTap)?.stop()
+        if let tap = tapBox as? SystemAudioTap {
+            audioQueue.async { tap.stop() }
+        }
         tapBox = nil
     }
 
